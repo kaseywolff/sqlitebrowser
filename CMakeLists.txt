@@ -31,6 +31,7 @@ OPTION(FORCE_INTERNAL_QCUSTOMPLOT "Don't use distribution's QCustomPlot even if 
 OPTION(FORCE_INTERNAL_QHEXEDIT "Don't use distribution's QHexEdit even if available" ON)
 OPTION(ALL_WARNINGS "Enable some useful warning flags" OFF)
 OPTION(sqlcipher "Build with SQLCipher library" OFF)
+OPTION(sqlite-see "Build with SQLite-SEE library" ON)
 OPTION(customTap "Using SQLCipher, SQLite and Qt installed through our custom Homebrew tap" OFF)
 
 set(CMAKE_CXX_STANDARD 14)
@@ -88,6 +89,7 @@ if(MSVC)
             set(SQLITE3_PATH "C:/git_repos/SQLCipher-Win64" CACHE PATH "SQLCipher Path")
         else()
             set(SQLITE3_PATH "C:/dev/SQLite-Win64" CACHE PATH "SQLite Path")
+        # TO ADD if(sqlite-see)
         endif()
     else()
         # Paths for 32-bit windows builds
@@ -438,6 +440,10 @@ if(sqlcipher)
 else()
     set(LIBSQLITE_NAME SQLite3)
 endif()
+
+# SQLite-SEE option
+add_definitions(-DENABLE_SQLITE_SEE)
+
 
 # add extra library path for MacOS and FreeBSD
 set(EXTRAPATH APPLE OR ${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD")

@@ -213,68 +213,76 @@ bool DBBrowserDB::open(const QString& db, bool readOnly)
     }
 #endif
 
-    if (_db)
+// Set encryption details for SQLite-SEE
+#ifdef ENABLE_SQLITE_SEE
+    "PRAGMA key='secret'";
+#endif
+
+  if (_db)
+  {
+    // add UTF16 collation (comparison is performed by QString functions)
+    sqlite3_create_collation(_db, "UTF16", SQLITE_UTF16, nullptr, sqlite_compare_utf16);
+    // add UTF16CI (case insensitive) collation (comparison is performed by QString functions)
+    sqlite3_create_collation(_db, "UTF16CI", SQLITE_UTF16, nullptr, sqlite_compare_utf16ci);
+
+    // register collation callback
+    Callback<void(void *, sqlite3 *, int, const char *)>::func = std::bind(&DBBrowserDB::collationNeeded, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
+    void (*c_callback)(void *, sqlite3 *, int, const char *) = static_cast<decltype(c_callback)>(Callback<void(void *, sqlite3 *, int, const char *)>::callback);
+    sqlite3_collation_needed(_db, nullptr, c_callback);
+
+    // Set foreign key settings as requested in the preferences
+    bool foreignkeys = Settings::getValue("db", "foreignkeys").toBool();
+    setPragma("foreign_keys", foreignkeys ? "1" : "0");
+
+    // Register REGEXP function
+    if (Settings::getValue("extensions", "disableregex").toBool() == false)
+      sqlite3_create_function(_db, "REGEXP", 2, SQLITE_UTF8, nullptr, regexp, nullptr, nullptr);
+
+    // Register our internal helper function for putting multiple values into a single column
+    sqlite3_create_function_v2(
+        _db,
+        "sqlb_make_single_value",
+        -1,
+        SQLITE_UTF8 | SQLITE_DETERMINISTIC,
+        nullptr,
+        sqlite_make_single_value,
+        nullptr,
+        nullptr,
+        nullptr);
+
+    // Check if file is read only. In-memory databases are never read only
+    if (db == ":memory:")
     {
-        // add UTF16 collation (comparison is performed by QString functions)
-        sqlite3_create_collation(_db, "UTF16", SQLITE_UTF16, nullptr, sqlite_compare_utf16);
-        // add UTF16CI (case insensitive) collation (comparison is performed by QString functions)
-        sqlite3_create_collation(_db, "UTF16CI", SQLITE_UTF16, nullptr, sqlite_compare_utf16ci);
-
-        // register collation callback
-        Callback<void(void*, sqlite3*, int, const char*)>::func = std::bind(&DBBrowserDB::collationNeeded, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
-        void (*c_callback)(void*, sqlite3*, int, const char*) = static_cast<decltype(c_callback)>(Callback<void(void*, sqlite3*, int, const char*)>::callback);
-        sqlite3_collation_needed(_db, nullptr, c_callback);
-
-        // Set foreign key settings as requested in the preferences
-        bool foreignkeys = Settings::getValue("db", "foreignkeys").toBool();
-        setPragma("foreign_keys", foreignkeys ? "1" : "0");
-
-        // Register REGEXP function
-        if(Settings::getValue("extensions", "disableregex").toBool() == false)
-            sqlite3_create_function(_db, "REGEXP", 2, SQLITE_UTF8, nullptr, regexp, nullptr, nullptr);
-
-        // Register our internal helper function for putting multiple values into a single column
-        sqlite3_create_function_v2(
-            _db,
-            "sqlb_make_single_value",
-            -1,
-            SQLITE_UTF8 | SQLITE_DETERMINISTIC,
-            nullptr,
-            sqlite_make_single_value,
-            nullptr,
-            nullptr,
-            nullptr
-        );
-
-        // Check if file is read only. In-memory databases are never read only
-        if(db == ":memory:")
-        {
-            isReadOnly = false;
-        } else {
-            QFileInfo fi(db);
-            QFileInfo fid(fi.absoluteDir().absolutePath());
-            isReadOnly = readOnly || !fi.isWritable() || !fid.isWritable();
-        }
-
-        // Load extensions
-        loadExtensionsFromSettings();
-
-        // Execute default SQL
-        if(!isReadOnly)
-        {
-            QByteArray default_sql = Settings::getValue("db", "defaultsqltext").toByteArray();
-            if(!default_sql.isEmpty())
-                executeMultiSQL(default_sql, false, true);
-        }
-
-        curDBFilename = db;
-
-        updateSchema();
-
-        return true;
-    } else {
-        return false;
+      isReadOnly = false;
     }
+    else
+    {
+      QFileInfo fi(db);
+      QFileInfo fid(fi.absoluteDir().absolutePath());
+      isReadOnly = readOnly || !fi.isWritable() || !fid.isWritable();
+    }
+
+    // Load extensions
+    loadExtensionsFromSettings();
+
+    // Execute default SQL
+    if (!isReadOnly)
+    {
+      QByteArray default_sql = Settings::getValue("db", "defaultsqltext").toByteArray();
+      if (!default_sql.isEmpty())
+        executeMultiSQL(default_sql, false, true);
+    }
+
+    curDBFilename = db;
+
+    updateSchema();
+
+    return true;
+  }
+  else
+  {
+    return false;
+  }
 }
 
 /**
